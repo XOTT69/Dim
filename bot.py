@@ -15,9 +15,9 @@ CHAT_ID = "-1003534080985"              # твій канал/чат
 DDNS_HOST = "home-ax53u.asuscomm.com"   # Asus DDNS
 DEVICE_IP = "192.168.50.254"            # Espressif без ДБЖ
 
-CHECK_INTERVAL = 60                     # сек, пауза між перевірками
+CHECK_INTERVAL = 30                     # сек, пауза між перевірками
 TIMEOUT = 4
-FAIL_CONFIRM = 3                        # скільки разів підряд має впасти перевірка
+FAIL_CONFIRM = 6                        # ~3 хвилини стабільної проблеми
 # ==================================================
 
 last_state = None                       # "ON", "OFF", "NET_DOWN"
@@ -54,17 +54,14 @@ def format_duration(sec):
 
 # ========== НИЗЬКОРІВНЕВІ ЧЕКИ =====================
 
-def tcp_check(host, port):
-    try:
-        with socket.create_connection((host, port), timeout=TIMEOUT):
-            return True
-    except OSError:
-        return False
-
-
 def internet_alive():
-    # Google DNS як простий індикатор інтернету.[web:45]
-    return tcp_check("8.8.8.8", 53)
+    # HTTP-запит як індикатор робочого інтернету.[web:45][web:48]
+    try:
+        r = requests.get("https://www.google.com", timeout=TIMEOUT)
+        return r.status_code == 200
+    except Exception as e:
+        print("Internet check error:", repr(e))
+        return False
 
 
 def ddns_alive():
@@ -73,14 +70,16 @@ def ddns_alive():
     except OSError as e:
         print("DDNS resolve error:", repr(e))
         return False
-    ok = tcp_check(ip, 443)
-    if not ok:
-        print("DDNS TCP error to", ip)
-    return ok
+    try:
+        with socket.create_connection((ip, 443), timeout=TIMEOUT):
+            return True
+    except OSError as e:
+        print("DDNS TCP error to", ip, ":", repr(e))
+        return False
 
 
 def device_alive():
-    # Пінг Espressif по локальному IP; якщо нема відповіді — девайс вимкнувся з 220В.
+    # Пінг Espressif по локальному IP.
     param = "-n" if platform.system().lower() == "windows" else "-c"
     try:
         result = subprocess.run(
@@ -145,6 +144,12 @@ def monitor_power():
         net_ok = internet_alive() and ddns_alive()
         dev_ok = device_alive()
 
+        # Для налагодження:
+        print(
+            f"net_ok={net_ok}, dev_ok={dev_ok}, "
+            f"fail_power={fail_count_power}, fail_net={fail_count_net}"
+        )
+
         state = last_state
 
         # Лічильник падінь інтернету/роутера
@@ -194,6 +199,6 @@ def monitor_power():
 
 
 if __name__ == "__main__":
-    print("🚀 СвітлоБот (DDNS + Espressif 192.168.50.254) запущено")
+    print("🚀 СвітлоБот (стабільний режим) запущено")
     threading.Thread(target=handle_updates, daemon=True).start()
     monitor_power()
