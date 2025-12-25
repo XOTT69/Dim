@@ -6,18 +6,13 @@ import threading
 import os
 
 # ====== НАЛАШТУВАННЯ ======
-BOT_TOKEN = os.environ.get("BOT_TOKEN")  # ⬅️ З ENV
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = "-1003534080985"
 
 DDNS_HOST = "home-ax53u.asuscomm.com"
 
-DEVICES = [
-    "192.168.50.2",      # Tuya
-    "192.168.50.254"     # Espressif
-]
-
 CHECK_INTERVAL = 60
-TIMEOUT = 3
+TIMEOUT = 4
 # =========================
 
 last_state = None
@@ -42,33 +37,19 @@ def send_message(text, with_button=False):
     tg("sendMessage", payload)
 
 
-def host_alive(host):
+# ====== DDNS CHECK (СТАБІЛЬНИЙ) ======
+def ddns_alive():
     try:
-        requests.get(
-            f"https://{host}",
-            timeout=TIMEOUT,
-            verify=False
-        )
+        ip = socket.gethostbyname(DDNS_HOST)
+        socket.create_connection((ip, 443), timeout=TIMEOUT)
         return True
     except:
         return False
-
-
-def any_device_alive():
-    for ip in DEVICES:
-        try:
-            socket.create_connection((ip, 443), timeout=TIMEOUT)
-            return True
-        except:
-            pass
-    return False
+# ====================================
 
 
 def get_status_text():
-    if not host_alive(DDNS_HOST):
-        return "❓ Статус невідомий\n(роутер недоступний)"
-
-    return "🔌 Світло Є" if any_device_alive() else "⚡ Світла НЕМА"
+    return "🔌 Світло Є" if ddns_alive() else "⚡ Світла НЕМА"
 
 
 def format_duration(sec):
@@ -107,10 +88,7 @@ def monitor_power():
     global last_state, power_off_at
 
     while True:
-        state = (
-            "ON" if host_alive(DDNS_HOST) and any_device_alive()
-            else "OFF"
-        )
+        state = "ON" if ddns_alive() else "OFF"
 
         if state != last_state:
             now = datetime.now().strftime("%H:%M")
@@ -133,6 +111,6 @@ def monitor_power():
 
 
 if __name__ == "__main__":
-    print("🚀 СвітлоБот запущено!")
+    print("🚀 СвітлоБот (DDNS-only) запущено")
     threading.Thread(target=handle_updates, daemon=True).start()
     monitor_power()
