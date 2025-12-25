@@ -2,21 +2,23 @@ import time
 import socket
 import requests
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import threading
 import os
 
-# ====== НАЛАШТУВАННЯ ======
+# ================== НАЛАШТУВАННЯ ==================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-CHAT_ID = "-1003534080985"
-
+CHAT_ID = "-1003534080985"          # канал
 DDNS_HOST = "home-ax53u.asuscomm.com"
 
-CHECK_INTERVAL = 60
+CHECK_INTERVAL = 60                 # перевірка раз на хвилину
 TIMEOUT = 4
-# =========================
+FAIL_CONFIRM = 3                    # скільки разів підряд має впасти DDNS
+# ==================================================
 
 last_state = None
 power_off_at = None
+fail_count = 0
 
 
 def tg(method, payload):
@@ -37,25 +39,29 @@ def send_message(text, with_button=False):
     tg("sendMessage", payload)
 
 
-# ====== DDNS CHECK (СТАБІЛЬНИЙ) ======
+# ===== DDNS-ПЕРЕВІРКА (СТАБІЛЬНА) =====
 def ddns_alive():
     try:
-        ip = socket.gethostbyname(DDNS_HOST)
+        ip = socket.gethostbyname(DDNS_HOST)      # DNS резолв
         socket.create_connection((ip, 443), timeout=TIMEOUT)
         return True
     except:
         return False
-# ====================================
+# =====================================
 
 
-def get_status_text():
-    return "🔌 Світло Є" if ddns_alive() else "⚡ Світла НЕМА"
+def kyiv_time():
+    return datetime.now(ZoneInfo("Europe/Kyiv")).strftime("%H:%M")
 
 
 def format_duration(sec):
     h = sec // 3600
     m = (sec % 3600) // 60
     return f"{h} год {m} хв" if h else f"{m} хв"
+
+
+def get_status_text():
+    return "🔌 Світло Є" if ddns_alive() else "⚡ Світла НЕМА"
 
 
 def handle_updates():
@@ -85,13 +91,20 @@ def handle_updates():
 
 
 def monitor_power():
-    global last_state, power_off_at
+    global last_state, power_off_at, fail_count
 
     while True:
-        state = "ON" if ddns_alive() else "OFF"
+        alive = ddns_alive()
+
+        if alive:
+            fail_count = 0
+            state = "ON"
+        else:
+            fail_count += 1
+            state = "OFF" if fail_count >= FAIL_CONFIRM else last_state
 
         if state != last_state:
-            now = datetime.now().strftime("%H:%M")
+            now = kyiv_time()
 
             if state == "OFF":
                 power_off_at = time.time()
@@ -111,6 +124,6 @@ def monitor_power():
 
 
 if __name__ == "__main__":
-    print("🚀 СвітлоБот (DDNS-only) запущено")
+    print("🚀 СвітлоБот (DDNS-only, Kyiv time) запущено")
     threading.Thread(target=handle_updates, daemon=True).start()
     monitor_power()
