@@ -12,7 +12,7 @@ CHAT_ID = int(os.environ["CHAT_ID"])
 
 HOST = "grigorivkasvitbo97.tplinkdns.com"
 CHECK_INTERVAL = 30      # перевірка кожні 30 сек
-STABLE_SECONDS = 60      # антифлап 1 хв
+STABLE_SECONDS = 60      # антифлап (1 хв)
 
 bot = Bot(BOT_TOKEN)
 
@@ -23,12 +23,12 @@ power_off_time = None
 
 def router_alive(host: str) -> bool:
     """
-    True  -> роутер реально онлайн
-    False -> роутер вимкнений / світла нема
+    True  -> роутер + інтернет реально живі
+    False -> світла нема / обладнання вимкнене
     """
     try:
         ip = socket.gethostbyname(host)
-        s = socket.create_connection((ip, 80), timeout=3)
+        s = socket.create_connection((ip, 443), timeout=3)
         s.close()
         return True
     except:
@@ -77,11 +77,15 @@ async def main():
                 # 🔴 світло зникло
                 if last_state and not state:
                     power_off_time = now_kyiv()
-                    await send(f"🔴 Світло зникло ({fmt_time(power_off_time)})")
+                    await send(
+                        f"🔴 Світло зникло ({fmt_time(power_off_time)})"
+                    )
 
                 # 🟢 світло зʼявилось
                 elif not last_state and state and power_off_time:
-                    duration = int((now_kyiv() - power_off_time).total_seconds())
+                    duration = int(
+                        (now_kyiv() - power_off_time).total_seconds()
+                    )
                     await send(
                         f"🟢 Світло зʼявилось ({fmt_time(now_kyiv())})\n"
                         f"⏱ Не було: {fmt_duration(duration)}"
