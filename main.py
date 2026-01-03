@@ -1,61 +1,82 @@
 import os
-from telegram import Update
-from telegram.ext import (
-    ApplicationBuilder,
-    ContextTypes,
-    MessageHandler,
-    filters,
-)
+import time
+import socket
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+from telegram import Bot
 
-# ========= НАЛАШТУВАННЯ =========
-BOT_TOKEN = os.environ.get("BOT_TOKEN")  # в ENV на Railway
-CHANNEL_ID = -1003534080985             # твій канал
-KEYWORD = "2.2"
-# ================================
+# ===== НАЛАШТУВАННЯ =====
+BOT_TOKEN = os.environ["BOT_TOKEN"]
+CHAT_ID = int(os.environ["CHAT_ID"])
 
+HOST = "grigorivkasvitbo97.tplinkdns.com"
+CHECK_INTERVAL = 30      # секунд
+STABLE_SECONDS = 60      # антифлап (1 хв)
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = update.message
-    if not msg:
-        return
+bot = Bot(BOT_TOKEN)
 
-    # Текст може бути в caption (якщо це пост з картинкою)
-    text = msg.text or msg.caption or ""
-    if KEYWORD not in text:
-        return
+last_state = None
+last_change = None
+power_off_time = None
 
-    # Якщо переслане повідомлення — форвардимо джерело,
-    # інакше форвардимо те, що отримав бот.
-    if msg.forward_from_chat and msg.forward_from_message_id:
-        from_chat_id = msg.forward_from_chat.id
-        message_id = msg.forward_from_message_id
-    elif msg.forward_from_message_id and msg.forward_from_chat is None and msg.forward_from:
-        # випадок форварду від юзера
-        from_chat_id = msg.forward_from.id
-        message_id = msg.forward_from_message_id
+def dns_alive(host):
+    try:
+        socket.gethostbyname(host)
+        return True
+    except:
+        return False
+
+def now_kyiv():
+    return datetime.now(ZoneInfo("Europe/Kyiv"))
+
+def fmt_time(dt):
+    return dt.strftime("%d.%m %H:%M")
+
+def fmt_duration(seconds):
+    td = timedelta(seconds=seconds)
+    h, r = divmod(td.seconds, 3600)
+    m, _ = divmod(r, 60)
+    if h:
+        return f"{h} год {m} хв"
+    return f"{m} хв"
+
+bot.send_message(CHAT_ID, "🤖 Світлобот запущено")
+
+while True:
+    state = dns_alive(HOST)
+    now = time.time()
+
+    if last_state is None:
+        last_state = state
+        last_change = now
+
+    elif state != last_state:
+        # фіксуємо зміну, але чекаємо стабільність
+        if last_change is None:
+            last_change = now
+
+        elif now - last_change >= STABLE_SECONDS:
+            # 🔴 світло зникло
+            if last_state and not state:
+                power_off_time = now_kyiv()
+                bot.send_message(
+                    CHAT_ID,
+                    f"🔴 Світло зникло ({fmt_time(power_off_time)})"
+                )
+
+            # 🟢 світло зʼявилось
+            elif not last_state and state and power_off_time:
+                duration = int((now_kyiv() - power_off_time).total_seconds())
+                bot.send_message(
+                    CHAT_ID,
+                    f"🟢 Світло зʼявилось ({fmt_time(now_kyiv())})\n"
+                    f"⏱ Не було: {fmt_duration(duration)}"
+                )
+                power_off_time = None
+
+            last_state = state
+            last_change = None
     else:
-        from_chat_id = msg.chat_id
-        message_id = msg.message_id
+        last_change = None
 
-    await context.bot.forward_message(
-        chat_id=CHANNEL_ID,
-        from_chat_id=from_chat_id,
-        message_id=message_id,
-    )
-
-
-def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    # Ловимо всі текстові / переслані / з підписом, без команд
-    app.add_handler(MessageHandler(
-        filters.TEXT | filters.CAPTION
-        & ~filters.COMMAND,
-        handle_message,
-    ))
-
-    app.run_polling()
-
-
-if __name__ == "__main__":
-    main()
+    time.sleep(CHECK_INTERVAL)
