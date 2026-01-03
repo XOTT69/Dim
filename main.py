@@ -11,8 +11,8 @@ BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = int(os.environ["CHAT_ID"])
 
 HOST = "grigorivkasvitbo97.tplinkdns.com"
-CHECK_INTERVAL = 30      # секунд
-STABLE_SECONDS = 60      # антифлап
+CHECK_INTERVAL = 30      # перевірка кожні 30 сек
+STABLE_SECONDS = 60      # антифлап 1 хв
 
 bot = Bot(BOT_TOKEN)
 
@@ -21,9 +21,15 @@ last_change = None
 power_off_time = None
 
 
-def dns_alive(host):
+def router_alive(host: str) -> bool:
+    """
+    True  -> роутер реально онлайн
+    False -> роутер вимкнений / світла нема
+    """
     try:
-        socket.gethostbyname(host)
+        ip = socket.gethostbyname(host)
+        s = socket.create_connection((ip, 80), timeout=3)
+        s.close()
         return True
     except:
         return False
@@ -46,7 +52,7 @@ def fmt_duration(seconds):
     return f"{m} хв"
 
 
-async def send(text):
+async def send(text: str):
     await bot.send_message(chat_id=CHAT_ID, text=text)
 
 
@@ -56,24 +62,22 @@ async def main():
     await send("🤖 Світлобот запущено")
 
     while True:
-        state = dns_alive(HOST)
-        now = time.time()
+        state = router_alive(HOST)
+        now_ts = time.time()
 
         if last_state is None:
             last_state = state
-            last_change = now
+            last_change = now_ts
 
         elif state != last_state:
             if last_change is None:
-                last_change = now
+                last_change = now_ts
 
-            elif now - last_change >= STABLE_SECONDS:
+            elif now_ts - last_change >= STABLE_SECONDS:
                 # 🔴 світло зникло
                 if last_state and not state:
                     power_off_time = now_kyiv()
-                    await send(
-                        f"🔴 Світло зникло ({fmt_time(power_off_time)})"
-                    )
+                    await send(f"🔴 Світло зникло ({fmt_time(power_off_time)})")
 
                 # 🟢 світло зʼявилось
                 elif not last_state and state and power_off_time:
